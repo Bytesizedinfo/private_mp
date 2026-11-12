@@ -30,8 +30,10 @@ try {
   const run = M.forecast(ctxFor(base(), '2027-01'));
   const jan = run.months[0], feb = run.months[1];
   eq('high month: bills, save, goals, spend', [feb.bills, feb.save, feb.goals.emergency, feb.goals.travel, feb.spend], [600, 320, 500, 300, 1480]);
-  eq('low month: goals cut by priority', [jan.bills, jan.save, jan.goals.emergency || 0, jan.goals.travel || 0, jan.short.emergency, jan.short.travel, jan.spend, jan.low], [600, 80, 120, 0, 380, 300, 0, true]);
-  eq('balances roll forward', [feb.bal.general, feb.bal.emergency, feb.bal.travel], [400, 620, 300]);
+  eq('low month: floor kept, goals cut by priority', [jan.bills, jan.save, jan.goals.emergency || 0, jan.goals.travel || 0, jan.short.emergency, jan.short.travel, jan.spend, jan.low], [600, 80, 20, 0, 480, 300, 100, false]);
+  eq('balances roll forward', [feb.bal.general, feb.bal.emergency, feb.bal.travel], [400, 520, 300]);
+  const runF = M.forecast(ctxFor(base({ spendFloor: 2500 }), '2027-01')), febF = runF.months[1];
+  eq('a high floor leaves goals only the rest', [febF.goals.emergency || 0, febF.goals.travel || 0, febF.spend], [0, 0, 2280]);
 
   // 4 + 5. phases suggested from capacity
   const keys = M.keyList('2026-12', 7), cap = {}; keys.forEach((k, i) => cap[k] = i < 2 ? 100 : 1000);

@@ -25,12 +25,18 @@ function openGoal(id) {
   const thisM = monthItems().find(x => x.id === id);
   const phases = (g.phases || []).filter(ph => !ph.to || ph.to >= ctx.curKey);
   let behind = '';
+  const tops = !debt && s.s === 'behind' ? topUpFrom(s.short) : [];
   if (s.s === 'behind') {
     const opt = Money.behindOptions(g, ctx, s);
     behind = `<div class="behind"><b>${s.late ? `The date has passed with ${money(s.short)} to go.` : `On this plan you’d be ${money(s.short)} short by ${esc(fmtDY(g.date))}.`}</b><span class="muted small">Pick one. You can change it again any time.</span>
       <div class="opt2">${opt && opt.catchUp ? `<div class="opt"><span class="eyebrow">Catch up</span><b class="num">+${money(opt.catchUp.add, { dp: 0 })}/mo</b><span class="small">for ${opt.months} month${opt.months === 1 ? '' : 's'}, keeps ${esc(fmtDY(s.late ? periodAt(0).end : g.date))}</span>${opt.catchUp.fits ? '' : `<span class="status warn">${I.warn}More than you’ll have spare</span>`}<button class="btn small" data-act="gl-catch">Use this</button></div>` : ''}
-        ${opt && opt.move ? `<div class="opt"><span class="eyebrow">Move the date</span><b>${esc(fmtDY(opt.move.date))}</b><span class="small">same monthly amount, ${Money.keyDiff(dk || ctx.curKey, opt.move.fin)} month${Money.keyDiff(dk || ctx.curKey, opt.move.fin) === 1 ? '' : 's'} later</span><button class="btn ghost small" data-act="gl-move">Use this</button></div>` : ''}</div></div>`;
+        ${opt && opt.move ? `<div class="opt"><span class="eyebrow">Move the date</span><b>${esc(fmtDY(opt.move.date))}</b><span class="small">same monthly amount, ${Money.keyDiff(dk || ctx.curKey, opt.move.fin)} month${Money.keyDiff(dk || ctx.curKey, opt.move.fin) === 1 ? '' : 's'} later</span><button class="btn ghost small" data-act="gl-move">Use this</button></div>` : ''}
+        ${tops.length ? `<div class="opt"><span class="eyebrow">Use your savings</span><b class="num">${money(sum(tops.map(x => x.amt)))}</b><span class="small">once, from ${esc(tops.map(x => saveCat(x.id).name).join(' and '))}</span><button class="btn ghost small" data-act="gl-topup">Use this</button></div>` : ''}</div></div>`;
   }
+  const src = goalSources(id), srcRows = [['From your pay', src.pay], ['From extras', src.extras], ['Added or moved in', src.moved], ['Had before', src.before]].filter(x => x[1] > 0.004);
+  const sources = debt ? '' : `<div class="sheet-sec"><div class="card-head"><h2 style="font-size:.95rem">Where this money came from</h2></div>
+    ${srcRows.length || src.out ? `<div class="flow" style="border-top:0;padding-top:0">${srcRows.map(([n, v]) => `<span>${n}</span><span>+${money(v)}</span>`).join('')}${src.out > 0.004 ? `<span>Taken out</span><span>−${money(src.out)}</span>` : ''}</div>` : '<p class="muted small">Nothing yet.</p>'}
+    <p class="muted small">${perPay(g) > 0.004 ? `Each time you log pay, this goal gets ${mw(perPay(g))} straight away (top goals first).` : 'It gets nothing from your pay yet. Edit the plan to give it a monthly amount.'}</p></div>`;
   let extra = '';
   if (debt) {
     const owe = pr.owe, min = +g.debt.min || 0, minOnly = Money.simDebt(owe, g.debt.apr, min), planned = min + Money.phaseAmt(g.phases, ctx.curKey), withPlan = Money.simDebt(owe, g.debt.apr, planned);
@@ -52,15 +58,18 @@ function openGoal(id) {
     ${tableHtml('Show as table', ['Month', debt ? 'Owed' : 'Saved', 'With extras'], [...ser.past.map(x => [keyName(x.key), money(x.v), '—']), ...ser.fut.map(x => [keyName(x.key) + ' ·', money(x.v), money(x.x)])])}
     ${s.fin && !g.done ? `<p class="small">${s.s === 'done' ? 'Reached.' : `Forecast: done around <b>${esc(keyName(s.fin))}</b> on your salary alone.`}</p>` : !g.done && s.s !== 'done' ? `<p class="small muted">At this plan it isn’t done within 20 years. Edit the plan to put more in.</p>` : ''}
     ${extra}
+    ${sources}
     <div class="sheet-sec"><div class="card-head"><h2 style="font-size:.95rem">Plan</h2><span class="muted small">${esc({ date: 'by date', amount: 'by monthly amount', phases: 'custom phases' }[g.planBy] || '')}</span></div>
       ${phases.length ? `<div class="ph-list">${phases.map(ph => `<div class="ph-row"><span>${ph.from && ph.from > ctx.curKey ? esc(keyName(ph.from)) : 'Now'} → ${ph.to ? esc(keyName(ph.to)) : 'until done'}</span><b class="num">${money(ph.amt)}/mo</b></div>`).join('')}</div>` : `<p class="muted small">${debt ? `Just the ${money(+g.debt.min)} minimum each month.` : 'Nothing planned yet.'}</p>`}
       ${thisM ? `<p class="small">This month: <b class="num">${money(thisM.put)}</b> of ${money(thisM.want)} in${thisM.due > 0.004 ? ` · ${money(thisM.due)} to go` : ' ✓'}</p>` : ''}</div>
-    <div class="btn-row">${debt ? `<button class="btn soft" data-act="gl-pay">Record a payment</button>` : `<button class="btn soft" data-act="gl-in">Move money in</button>`}<button class="btn ghost" data-act="gl-edit">Edit plan</button></div>
+    <div class="btn-row">${debt ? `<button class="btn soft" data-act="gl-pay">Record a payment</button>` : `<button class="btn ghost" data-act="gl-in">Add money</button>`}<button class="btn ghost" data-act="gl-edit">Edit plan</button></div>
     <button class="btn ${g.done ? 'ghost' : s.s === 'done' ? '' : 'ghost'}" data-act="gl-done">${g.done ? 'Reopen goal' : 'Mark done'}</button></div>`, sheet => {
     sheet.addEventListener('click', e => {
       const b = e.target.closest('[data-act]'); if (!b) return; const a = b.dataset.act;
       if (a === 'gl-in') openMove(null, { to: id, from: 'spend', amt: thisM && thisM.due > 0.004 ? String(thisM.due) : '' });
       if (a === 'gl-pay') openPayDebt(id);
+      if (a === 'gl-topup') { const t = topUpFrom(plan().status[id] ? plan().status[id].short : 0), tot = r2(sum(t.map(x => x.amt))); if (!t.length) return;
+        armDanger(b, `Tap again to move ${money(tot)}`, () => { addTx(t.map(x => ({ id: newId(), d: today(), t: 'move', amt: x.amt, from: x.id, to: id, note: `Top up ${g.name}` }))); toast(`${money(tot)} moved into ${g.name}`); openGoal(id); }); }
       if (a === 'gl-edit') openGoalEdit(id, { onDone: () => openGoal(id) });
       if (a === 'gl-months') { g.months = +b.dataset.v; g.autoTarget = true; saveSettings(); openGoal(id); }
       if (a === 'gl-catch' || a === 'gl-move') {
@@ -72,6 +81,13 @@ function openGoal(id) {
       if (a === 'gl-done') { if (g.done) { delete g.done; saveSettings(); toast(`${g.name} reopened`); } else { g.done = today(); saveSettings(); toast(`${g.name} marked done${saveBal(id) > 0.004 ? `. Its ${money(saveBal(id))} stays put.` : ''}`); } openGoal(id); }
     });
   });
+}
+
+/* savings you could use to top up a goal that's behind: General savings first, then unsorted (Other) */
+function topUpFrom(short) {
+  const out = []; let need = r2(short || 0);
+  for (const id of ['general', 'other']) { const c = saveCat(id); if (c === NOCAT || c.goal || !(need > 0.004)) continue; const b = saveBal(id); if (b > 0.004) { const y = r2(Math.min(b, need)); out.push({ id, amt: y }); need = r2(need - y); } }
+  return out;
 }
 
 /* ===== create or edit a goal: savings goal, emergency fund or debt; planned by date, monthly amount or phases ===== */

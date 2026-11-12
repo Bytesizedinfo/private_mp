@@ -107,11 +107,11 @@ function asideGo(el) {
   if (due > left + 0.004) armDanger(el, `Spending has ${money(Math.max(0, left))}. Tap again`, go); else go();
 }
 
-/* safe to spend: Spending left − bills still due − set-asides still due. It's about the money you have; a budget,
-   if you set one, is shown beside it as a note rather than taken off. */
+/* safe to spend: Spending money left − bills still due. Goal money is taken from each pay as it comes in, so
+   nothing else is held back. A budget, if you set one, is shown beside it as a note rather than taken off. */
 function safeNow() {
-  const P = periodAt(0), m = spendMonth(P), unpaid = billsAhead(P).total, aside = asideLeft(), t = today();
-  const safe = r2(m.left - unpaid - aside);
+  const P = periodAt(0), m = spendMonth(P), unpaid = billsAhead(P).total, aside = 0, t = today();
+  const safe = r2(m.left - unpaid);
   const bud = budgetNow().month, budLeft = bud > 0.004 ? r2(bud - spentFromSpend(rangeFor('month'))) : null;
   const can = safe, capped = false;
   const clip = r => ({ start: r.start < P.start ? P.start : r.start, end: r.end > P.end ? P.end : r.end });
@@ -124,8 +124,9 @@ function safeNow() {
   return { P, m, unpaid, aside, safe, can: r2(can), capped, budLeft, per, daysLeft: diffDays(t, P.end) + 1, payPending };
 }
 
-/* the money order applied to a pay as it comes in. Returns rows in order and the Spending part
-   (bills still due stay in Spending). forNext: pay meant for next month. */
+/* the money order applied to a pay as it comes in: bills still due (they stay in Spending), savings %, your
+   spending floor (stays in Spending too), then each goal's monthly amount by priority; the rest is spending money.
+   Returns the rows in order and the Spending part. forNext: pay meant for next month. */
 function paydayRows(amount, forNext) {
   const st = S.settings, p = plan(), ctx = p.ctx, k = forNext ? Money.keyAdd(ctx.curKey, 1) : ctx.curKey, cur = !forNext;
   const P = periodAt(0), unpaid = cur ? billsAhead(P).total : (Money.billsByKey(st, k, k)[k] || { spend: 0 }).spend;
@@ -133,6 +134,8 @@ function paydayRows(amount, forNext) {
   const rows = [{ key: 'bills', name: 'Bills still due', want: reserve, stays: true }];
   const split = Money.saveSplitOf(st), shares = Money.splitCents(Money.cents(amount * (+st.savePct || 0) / 100), split);
   for (const id in shares) rows.push({ key: id, kind: 'save', name: saveCat(id).name, color: goalColor(saveCat(id)), want: r2(shares[id] / 100), sub: `${st.savePct}% savings` }); // the % comes off every pay
+  const have = cur ? Math.max(0, r2(ctx.spendLeft - unpaid)) : 0; // spending money you already have counts towards the floor
+  rows.push({ key: 'floor', name: 'Spending money (your floor)', want: r2(Math.max(0, (+st.spendFloor || 0) - have)), stays: true });
   const runM = Money.monthOf(p.run, k);
   for (const c of p.items) {
     let want = Money.phaseAmt(c.phases, k);
@@ -143,7 +146,33 @@ function paydayRows(amount, forNext) {
   }
   const w = Money.waterfall(amount, rows.map(r => r.want));
   rows.forEach((r, i) => r.got = w.got[i]);
-  return { rows, spend: r2(w.left + rows[0].got), left: w.left, short: rows.filter(r => r.got < r.want - 0.004) };
+  return { rows, spend: r2(w.left + sum(rows.filter(r => r.stays).map(r => r.got))), left: w.left, short: rows.filter(r => !r.stays && r.got < r.want - 0.004) };
+}
+/* a pay split the plan's way, as the money-in entry's parts: { spend, save: { id: amount } } */
+function payParts(amount, forNext) {
+  const pr = paydayRows(amount, forNext), save = {};
+  for (const r of pr.rows) if (!r.stays && r.got > 0.004) save[r.key] = r2((save[r.key] || 0) + r.got);
+  return { pr, spend: pr.spend, save };
+}
+/* "I got paid": log this month's usual salary today, shared out automatically */
+function payNow(amount) {
+  const a = r2(amount); if (!(a > 0)) return;
+  const x = payParts(a, false);
+  addTx([{ id: newId(), d: today(), t: 'in', src: 'pay', cat: 'salary', amt: a, spend: x.spend, save: x.save, note: '' }]);
+  const goals = Object.entries(x.save).filter(([id]) => saveCat(id).goal).length;
+  toast(`${money(a)} shared out: ${money(sum(Object.values(x.save)))} to savings${goals ? ` and ${goals} goal${goals === 1 ? '' : 's'}` : ''}, ${money(x.spend)} to spend.`, '', 5000);
+}
+/* this month's pay entries, and where their money went */
+function payThisMonth() {
+  const P = periodAt(0), list = S.tx.filter(t => t.t === 'in' && t.src === 'pay' && inSpendDay(t) >= P.start && inSpendDay(t) <= P.end);
+  const parts = { spend: 0 }; for (const t of list) { parts.spend += +t.spend || 0; for (const [k, v] of Object.entries(t.save || {})) parts[k] = (parts[k] || 0) + +v; }
+  return { list, amt: r2(sum(list.map(t => t.amt))), parts };
+}
+/* where a goal's money came from: pay, extras, moved in, had before (and what's been taken out) */
+function goalSources(id) {
+  const o = { pay: 0, extras: 0, moved: 0, before: +saveCat(id).start || 0, out: 0 };
+  for (const t of S.tx) { const e = saveEffect(t, id); if (!e) continue; if (e < 0) { o.out -= e; continue; } if (t.t === 'in') { if (t.src === 'pay') o.pay += e; else o.extras += e; } else o.moved += e; }
+  for (const k in o) o[k] = r2(o[k]); return o;
 }
 /* an extra as it arrives: a % to goals (by priority, or your own split), the rest to Spending or savings */
 function extraParts(amount, alloc = {}) {

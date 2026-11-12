@@ -27,6 +27,9 @@ Object.assign(ACT, {
   'setup-later': () => { S.settings.review = false; saveSettings(); toast('You can set it up any time in More → Plan.'); },
   theme: el => { lsSet('spend-save:theme', el.dataset.v); applyTheme(); renderView(); },
   'pay-debt': el => openPayDebt(el.dataset.id),
+  'pay-now': () => payNow(Money.salaryAt(S.settings.income, curKey())),
+  'pay-other': () => openIn(null, { src: 'pay' }),
+  'bal-fix': () => { showBreakdown(true, '#bal-real'); setTimeout(() => { const i = $('#bal-real'); if (i) i.focus(); }, 350); },
   'try-demo': () => startDemo('try'),
   'demo-exit': () => location.reload(),
 });

@@ -372,10 +372,12 @@ function renderView() {
   if (S.mode === 'onboard') { $('#top-title').textContent = 'Welcome'; main.innerHTML = viewOnboard(); return; }
   recompute();
   $('#top-title').textContent = TITLES[S.view];
+  $('#top-date').innerHTML = S.view === 'home' ? esc(`${DOW[new Date().getDay()]}, ${fmtD(today())}`)
+    : `<button class="top-total" data-act="balance" aria-label="All your money: ${esc(money(balanceParts().total))}. Show the breakdown."><span>All your money</span><b class="num">${esc(money(balanceParts().total))}</b></button>`;
   $$('.tab[data-view]').forEach(b => { if (b.dataset.view === S.view) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); });
   const fn = { home: viewHome, goals: viewGoals, forecast: viewForecast, more: viewMore }[S.view];
   const demo = S.mode === 'demo' ? `<div class="banner"><b>Example data.</b> ${S.why === 'try' ? 'Nothing here is saved. <button class="linkbtn" data-act="demo-exit">Back to my own</button>' : `${S.why === 'signedout' ? 'Sign in to claude.ai and reopen this page' : 'Open this page in claude.ai while signed in'} to use your own. Changes here aren’t saved.`}</div>` : '';
-  main.innerHTML = (S.view === 'home' ? localBanners() : '') + demo + fn();
+  main.innerHTML = S.view === 'home' ? viewHome(localBanners() + demo) : demo + fn();
   if (S.view === 'more' && moreTab() === 'activity') renderActList();
 }
 
@@ -385,6 +387,7 @@ const HOME_OPTS = [
   ['bills', 'All bills this month', 'Every bill due this month, not only the next 7 days.'],
   ['savDetail', 'Savings details', 'This month / Total switch, what went in and out, and Sort it now for Other.'],
   ['insOpen', 'Open everything in Past', 'Show every card in Forecast → Past without tapping More insights.'],
+  ['cats', 'Spent by category', 'Your top categories today, this week or this month.'],
   ['actOpen', 'Show all filters in Activity', 'Show the Spending & savings and category filters without tapping More filters.'],
 ];
 const homeOn = k => !!(S.settings && S.settings.home && S.settings.home[k]);
@@ -485,11 +488,11 @@ function balanceCard() {
   const b = balanceParts(), neg = v => v < -0.004 ? ' style="color:var(--over)"' : '', open = !!S.bdOpen;
   return `<section class="bal" aria-label="All your money">
     <button class="bal-toggle" data-act="balance" aria-expanded="${open}" aria-controls="bd" aria-label="All your money: ${esc(money(b.total))}. ${open ? 'Hide' : 'Show'} the breakdown.">
-      <span class="hero-top" style="width:100%"><span class="eyebrow">All your money</span><span class="linkbtn">${open ? 'Hide breakdown ▴' : 'Breakdown ▾'}</span></span>
+      <span class="hero-top" style="width:100%"><span class="eyebrow">All your money · in the bank</span><span class="linkbtn">${open ? 'Hide breakdown ▴' : 'Breakdown ▾'}</span></span>
       <span class="hero-num ${b.total < -0.004 ? 'neg' : ''}" style="display:block"><span class="cur">${b.total < -0.004 ? '−' : ''}${esc(sym())}</span>${nf2.format(Math.abs(b.total))}</span>
       <span class="muted small">Savings <b class="num"${neg(b.saved)}>${money(b.saved)}</b> · Spending <b class="num"${neg(b.spend)}>${money(b.spend)}</b>${b.ahead > 0.004 ? ` · Next month <b class="num">${money(b.ahead)}</b>` : ''}</span>
     </button>
-    ${open ? `<div class="bd-inline" id="bd">${breakdownHtml(b)}</div>` : ''}
+    ${open ? `<div class="bd-inline" id="bd">${breakdownHtml(b)}</div>` : `<button class="linkbtn muted" data-act="bal-fix" style="align-self:flex-start">Not the same as your bank? Update it</button>`}
   </section>`;
 }
 function breakdownHtml(b) {
@@ -499,7 +502,7 @@ function breakdownHtml(b) {
   return `<div class="flow" style="border-top:0;padding-top:0"><span><i class="dot rs" style="margin-right:8px"></i>Spending · left this month</span><span${neg(b.spend)}>${money(b.spend)}</span>${b.ahead > 0.004 ? `<span><i class="dot rs" style="margin-right:8px;opacity:.5"></i>Spending · for next month</span><span>${money(b.ahead)}</span>` : ''}<span><i class="dot" style="background:var(--r-save);margin-right:8px"></i>Savings</span><span${neg(b.saved)}>${money(b.saved)}</span><span class="tot">Total</span><span class="tot"${neg(b.total)}>${money(b.total)}</span></div>
     ${debts.length ? `<div class="flow"><span class="muted">Owed (not taken off above)</span><span></span>${debts.map(x => `<span>${esc(x.c.name)}</span><span style="color:var(--over)">−${money(x.v)}</span>`).join('')}<span class="tot">After debts</span><span class="tot">${money(r2(b.total - sum(debts.map(x => x.v))))}</span></div>` : ''}
     ${cats.length ? `<div class="sheet-sec"><span class="eyebrow">Savings by category</span>${hbars(cats.map(x => ({ name: x.c.name + (x.c.goal ? ' (goal)' : ''), v: x.v, color: goalColor(x.c), dot: true, over: x.v < -0.004, note: tgtOf(x.c) ? `of ${mw(tgtOf(x.c))}` : '' })))}</div>` : ''}
-    <div class="sheet-sec" id="bd-avail"><span class="eyebrow">Safe to spend this month</span><div class="avail-num"><b class="num${s.can < -0.004 ? ' neg' : ''}">${money(s.can)}</b><span>after bills and set-asides still due</span></div><button class="linkbtn" data-act="safe-how" style="align-self:flex-start">How it’s worked out</button></div>
+    <div class="sheet-sec" id="bd-avail"><span class="eyebrow">Safe to spend this month</span><div class="avail-num"><b class="num${s.can < -0.004 ? ' neg' : ''}">${money(s.can)}</b><span>after bills still due</span></div><button class="linkbtn" data-act="safe-how" style="align-self:flex-start">How it’s worked out</button></div>
     <div class="field sheet-sec"><label for="bal-real">Is this all your money?</label>
       <span class="hint">If your bank accounts and cash add up to a different amount, type the real total. The difference goes into Savings → ${esc(oName)} as money you already had.</span>
       <div class="money-in" data-sym="${esc(sym())}"><input class="input" id="bal-real" inputmode="decimal" placeholder="${esc(b.total.toFixed(2))}" autocomplete="off"></div>
@@ -859,7 +862,7 @@ document.addEventListener('keydown', e => {
   if ((e.key === 'Enter' || e.key === ' ') && e.target.matches && e.target.matches('[role="button"][data-act]')) { e.preventDefault(); e.target.click(); }
 });
 function armDanger(btn, text, fn) { if (btn.dataset.armed) { fn(); return; } const o = btn.textContent; btn.dataset.armed = '1'; btn.textContent = text; setTimeout(() => { if (btn.isConnected) { delete btn.dataset.armed; btn.textContent = o; } }, 4000); }
-const kindSeg = cur => `<div class="seg" role="group" aria-label="What happened"><button data-act="kind" data-v="out" aria-pressed="${cur === 'out'}">Spent</button><button data-act="kind" data-v="in" aria-pressed="${cur === 'in'}">Money in</button><button data-act="kind" data-v="move" aria-pressed="${cur === 'move'}">Move</button></div>`;
+const kindSeg = cur => `<div class="seg" role="group" aria-label="What happened"><button data-act="kind" data-v="out" aria-pressed="${cur === 'out'}">Spent</button><button data-act="kind" data-v="in" aria-pressed="${cur === 'in'}">Money in</button>${cur === 'move' ? `<button data-act="kind" data-v="move" aria-pressed="true">Move</button>` : ''}</div>${cur === 'move' ? '' : `<button class="linkbtn muted" data-act="kind" data-v="move" style="align-self:flex-end;margin-top:-10px">Move money between pots</button>`}`;
 function switchKind(v, amt) { if (v === 'out') openSpend(null, { amt }); else if (v === 'in') openIn(null, { amt }); else openMove(null, { amt }); }
 const spendLeftOn = (ds, existing) => { let l = spendMonth(periodFor(ds)).left; if (existing && existing.t === 'out' && existing.from === 'spend' && periodFor(existing.d).start === periodFor(ds).start) l += existing.amt; return r2(l); };
 
@@ -944,6 +947,8 @@ function openIn(existing, preset = {}) {
   if (!existing && !('dest' in preset) && (M.src === 'pay' || M.extraId)) usePlan();
   const mainOf = d => M.planSplit && d === 'split' ? 'plan' : d === 'spend' || d === 'split' ? d : d ? 'save' : '';
   const destHtml = () => {
+    if (mainOf(M.dest) === 'plan' && !M.showSplit) return `<div class="field"><span>${M.src === 'pay' ? 'Shared out for you' : 'Shared out by your extras rule'}</span><div id="plan-bar">${planBarHtml()}</div>
+      <button class="linkbtn" data-act="in-showsplit" style="align-self:flex-start">Change the split</button></div>${forHtml()}`;
     const main = mainOf(M.dest), cats = s.saveCats.filter(c => c.id !== 'other' && !c.done), sel = main === 'save' && M.dest !== 'other' ? saveCat(M.dest) : null;
     let hint = '';
     if (main === 'save') { if (!sel) hint = `None picked: it goes to Savings → ${esc(otherCat().name)}, to sort later.`; else { hint = `Goes to ${esc(sel.name)} (${money(saveBal(sel.id))} there now)`; if (sel.goal && !sel.done) { const it = monthItems().find(x => x.id === sel.id); hint += it && it.due > 0.004 ? ` · needs ${money(it.due)} this month` : ''; } hint += '.'; } }
@@ -978,7 +983,7 @@ function openIn(existing, preset = {}) {
   function usePlan() {
     const a = r2(parseMoney(M.amt)); M.dest = 'split'; M.planSplit = true; SP.mode = 'amt'; SP.touched = false; SP.parts = {};
     if (!(a > 0)) return;
-    if (M.src === 'pay') { const pr = paydayRows(a, M.forNext); SP.parts.spend = pr.spend; for (const r of pr.rows.slice(1)) if (r.got > 0.004) SP.parts[r.key] = r2((SP.parts[r.key] || 0) + r.got); }
+    if (M.src === 'pay') { const pr = paydayRows(a, M.forNext); SP.parts.spend = pr.spend; for (const r of pr.rows.filter(r => !r.stays)) if (r.got > 0.004) SP.parts[r.key] = r2((SP.parts[r.key] || 0) + r.got); }
     else { const x = M.extraId ? ((s.income.extras || []).find(e => e.id === M.extraId) || {}) : {}; Object.assign(SP.parts, extraParts(a, x.alloc || {})); }
   }
   function planBarHtml() {
@@ -1044,6 +1049,7 @@ function openIn(existing, preset = {}) {
       if (a === 'in-newinc') { const keep = { src: 'other', amt: M.amt, d: M.d, note: M.note, dest: M.dest }; openIncomeCatEdit(null, { onSaved: nid => openIn(existing, { ...keep, cat: nid }), onDone: () => openIn(existing, { ...keep, cat: M.cat }) }); }
       if (a === 'in-dest') { const v = b.dataset.v; if (v === 'plan') { usePlan(); repaint(); return; } M.planSplit = false; if (!(v === 'other' && mainOf(M.dest) === 'save')) { M.dest = v; repaint(); } }
       if (a === 'in-savecat') { M.dest = M.dest === b.dataset.v ? 'other' : b.dataset.v; repaint(); } // tap again for no category
+      if (a === 'in-showsplit') { M.showSplit = true; repaint(); }
       if (a === 'in-for') { M.forNext = b.dataset.v === '1'; if (M.planSplit && !SP.touched) usePlan(); repaint(); }
       if (a === 'sp-mode' && b.dataset.v !== SP.mode) { // keep the same split when switching between % and amounts
         const a0 = r2(parseMoney(M.amt));

@@ -28,7 +28,7 @@ function demoData() {
   const food = ['Kopitiam', 'Chicken rice', 'Bubble tea', 'Toast Box', 'Mala', 'Ya Kun'];
   for (let off = -5; off <= 0; off++) {
     const p = periodAt(off), last = off === 0 ? today() : p.end;
-    push({ d: p.start, t: 'in', src: 'pay', cat: 'salary', amt: 800, spend: off === 0 ? 470 : 330, save: off === 0 ? { general: 120, emergency: 60, phone: 100, invest: 50 } : off >= -2 ? { general: 120, emergency: 100, phone: 100, shanghai: 100, invest: 50 } : { other: 470 }, note: '' });
+    if (off < 0) push({ d: p.start, t: 'in', src: 'pay', cat: 'salary', amt: 800, spend: off === 0 ? 470 : 330, save: off === 0 ? { general: 120, emergency: 60, phone: 100, invest: 50 } : off >= -2 ? { general: 120, emergency: 100, phone: 100, shanghai: 100, invest: 50 } : { other: 470 }, note: '' });
     if (off < -2) { const sortDay = addDays(p.start, 2); push({ d: sortDay, t: 'move', amt: 250, from: 'other', to: 'emergency', note: '' }); push({ d: sortDay, t: 'move', amt: 150, from: 'other', to: 'shanghai', note: '' }); push({ d: sortDay, t: 'move', amt: 70, from: 'other', to: 'general', note: '' }); }
     if (off === -1) { push({ d: addDays(p.start, 12), t: 'in', src: 'other', cat: 'side', amt: 120, spend: 30, save: { other: 60, shanghai: 30 }, note: 'Tuition' }); push({ d: addDays(p.start, 19), t: 'out', amt: 100, label: 'bills', from: 'spend', note: 'Payment · Credit card', debt: 'card' }); }
     for (let d = p.start; d <= last; d = addDays(d, 1)) {

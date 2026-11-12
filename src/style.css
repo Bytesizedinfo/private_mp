@@ -467,3 +467,15 @@ path.hatch-fill{opacity:.36}
 .st-h{font:780 1.15rem/1.2 var(--f-display)}
 @media (max-width:380px){.opt2{grid-template-columns:1fr}.sal-row{grid-template-columns:2.4rem 1fr 1fr auto}}
 @media (prefers-reduced-motion:reduce){.ring-v{transition:none}}
+
+/* ===== v5.1: all your money in the top bar, one-tap pay, bill line ===== */
+.top-total{display:flex;flex-direction:column;align-items:flex-end;justify-content:center;border:0;background:none;padding:2px 0;line-height:1.15;min-height:44px;cursor:pointer;color:inherit}
+.top-total span{font-size:.66rem;font-weight:750;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.top-total b{font:780 1.08rem/1.15 var(--f-display);letter-spacing:-.02em;color:var(--ink)}
+.bill-line{display:flex;align-items:center;justify-content:space-between;gap:10px;border-top:1px solid var(--line);padding-top:8px;font-size:.84rem}
+.bill-line span{display:inline-flex;align-items:center;gap:6px;color:var(--warn);min-width:0}
+.bill-line span b{color:var(--ink)}
+.bill-line svg{width:15px;height:15px;flex:none}
+.snap-g .per-pay{color:var(--ink-2);font-weight:650}
+.pay-card{border-color:color-mix(in srgb,var(--accent) 45%,var(--line))}
+.pay-card .avail-num b{font-size:2.2rem}

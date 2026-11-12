@@ -32,13 +32,18 @@
     await go('home');
     ok('safe to spend shown', /Safe to spend/.test(text()));
     for (const k of ['day', 'week', 'all', 'month']) { await click(`[data-act="safe-k"][data-v="${k}"]`); ok(`safe toggle ${k}`, $(`[data-act="safe-k"][data-v="${k}"]`).getAttribute('aria-pressed') === 'true'); }
-    ok('this month’s plan shown', /This month’s plan/.test(text()));
+    ok('all your money is the first card', ($('#view > section') || {}).classList?.contains('bal'));
+    ok('got paid card', /Got paid\?/.test(text()) && !!$('[data-act="pay-now"]'));
     await click('[data-act="safe-how"]', 100); ok('safe sheet', /Safe to spend/.test(sheet())); await click('[data-act="close-sheet"]');
     await click('[data-act="balance"]', 100); ok('breakdown', /Is this all your money/.test(text())); await click('[data-act="balance"]', 100);
     // set aside one item
     const aside = $('[data-act="aside-go"]'); if (aside) { const before = text(); await click(aside, 120); ok('set aside', text() !== before); }
+    // one tap: pay shared out for you
+    await click('[data-act="pay-now"]', 250); ok('one-tap pay', /Your S\$800\.00 pay/.test(text()) && !$('[data-act="pay-now"]'));
     // goals
     await go('goals');
+    ok('all your money in the top bar', !!$('.top-total'));
+    ok('where goal money comes from', /Where goal money comes from/.test(text()));
     ok('gantt', !!$('.goals-sum') && /When each goal is done/.test(text()));
     const ids = $$('.goal-card [data-act="goal"]').map(b => b.dataset.id);
     ok('4 goal cards', ids.length >= 4, ids.join(','));
@@ -76,13 +81,12 @@
     // + sheet: pay with my plan
     await go('home');
     await click('[data-act="add"]', 150); await click('[data-act="kind"][data-v="in"]', 150);
-    ok('pay uses my plan', $('[data-act="in-dest"][data-v="plan"]').getAttribute('aria-pressed') === 'true');
-    ok('plan bar', !!$('#plan-bar .segbar'));
-    await type('#in-amt', '3200'); ok('split adds up', /All .* is split/.test(($('#sp-sum') || {}).textContent || ''), ($('#sp-sum') || {}).textContent);
+    ok('pay is shared out for you', !!$('#plan-bar .segbar') && !!$('[data-act="in-showsplit"]'));
+    await type('#in-amt', '3200'); await click('[data-act="in-showsplit"]', 150); ok('split adds up', /All .* is split/.test(($('#sp-sum') || {}).textContent || ''), ($('#sp-sum') || {}).textContent);
     await click('[data-act="in-save"]', 200); ok('pay logged', !$('.sheet-body'));
     // other money: goals + spend
     await click('[data-act="add"]', 150); await click('[data-act="kind"][data-v="in"]', 150); await click('[data-act="in-src"][data-v="other"]', 120);
-    await type('#in-amt', '200'); await click('[data-act="in-dest"][data-v="plan"]', 120); ok('extra split adds up', /All .* is split/.test(($('#sp-sum') || {}).textContent || ''));
+    await type('#in-amt', '200'); await click('[data-act="in-dest"][data-v="plan"]', 120); await click('[data-act="in-showsplit"]', 120); ok('extra split adds up', /All .* is split/.test(($('#sp-sum') || {}).textContent || ''));
     await click('[data-act="in-save"]', 200);
     // spending
     await click('[data-act="add"]', 150); await type('#sp-amt', '12.50'); await click('[data-act="sp-label"][data-v="food"]'); await click('[data-act="sp-save"]', 200); ok('spending logged', !$('.sheet-body'));

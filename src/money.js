@@ -4,7 +4,8 @@
    like the app's short month labels: the month a period starts in when it starts on the 1st–15th, otherwise the
    month it ends in. Money is added up in whole cents and rounded to cents on the way out.
 
-   The money order every month: bills (and debt minimums) → savings % → goals by priority → spending money.
+   The money order every month: bills (and debt minimums) → savings % → your spending floor → goals by priority
+   → the rest is spending money too. Goals only ever get what's left above the floor.
    Extras (bonus, side gigs, ang bao) never fund the plan; in the "with extras" scenario their counted share is
    shared out by its own rule: a % to goals, the rest to spending (or savings). */
 const Money = (() => {
@@ -171,7 +172,9 @@ function forecast(ctx) {
     const saveWant = Math.max(0, cents(salBase * pct / 100) - (now ? sum(Object.keys(split).map(put)) : 0)), saveGot = take(saveWant);
     M.save = saveGot / 100; const saveTo = splitCents(saveGot, split); for (const id in saveTo) M.saveTo[id] = saveTo[id] / 100;
     if (saveGot < saveWant) M.short._save = (saveWant - saveGot) / 100;
-    // 3. goals and plans, by priority
+    // 3. keep your spending floor safe before goals take anything
+    const floorKeep = Math.min(Math.max(0, pot), cents(floor)); pot -= floorKeep;
+    // 4. goals and plans, by priority
     const goalC = {}, needLeft = {};
     for (const c of items) {
       let want = cents(phaseAmt(phasesOf(c), k));
@@ -208,7 +211,7 @@ function forecast(ctx) {
     if (extraSpend) M.extra.spend = extraSpend / 100;
     if (extraSave) { M.extra.save = extraSave / 100; const es = splitCents(extraSave, split); for (const id in es) bal[id] = (bal[id] || 0) + es[id]; }
     for (const id in goalC) if (goalC[id]) M.goals[id] = goalC[id] / 100;
-    M.spend = (pot + extraSpend) / 100; M.low = M.spend < floor - 0.004;
+    M.spend = (pot + floorKeep + extraSpend) / 100; M.low = M.spend < floor - 0.004;
     // roll the balances forward
     for (const id in saveTo) bal[id] = (bal[id] || 0) + saveTo[id];
     for (const [id, v] of Object.entries(b.cats)) bal[id] = (bal[id] || 0) - cents(v);

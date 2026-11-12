@@ -2,26 +2,19 @@
 const SAFE_K = ['day', 'week', 'month', 'all'], SAFE_NAME = { day: 'Today', week: 'Week', month: 'Month', all: 'All' };
 const safeK = () => SAFE_K.includes(S.safeK) ? S.safeK : 'month';
 
-/* ===== Home: what can I spend? ===== */
-function viewHome() {
+/* ===== Home: the essentials. All your money first, then your pay, what's safe to spend, goals, recent. ===== */
+function viewHome(lead = '') {
   const st = S.settings, P = periodAt(0);
-  let h = '';
+  let h = balanceCard() + lead;
   if (st.review) h += setupCard();
-  h += safeCard();
-  if (!payFor(P) && Money.salaryAt(st.income, curKey()) > 0) {
-    const pd = st.income && st.income.payDay, dueSoon = !pd || parts(today())[2] >= pd - 2;
-    if (dueSoon) h += `<section class="card nudge"><div class="card-head"><h2>Got paid?</h2><span class="muted small num">${money(Money.salaryAt(st.income, curKey()))} expected</span></div><p class="muted small">Log it and the app splits it for you: bills, ${esc(st.savePct)}% savings, your goals by priority, then spending money. You can change any amount first.</p><div><button class="btn small" data-act="log-pay">Split my pay</button></div></section>`;
-  }
+  h += payCard() + safeCard();
   const miss = missedExtras();
   if (miss.length) h += `<section class="card nudge"><div class="card-head"><h2>Did it arrive?</h2></div><p class="muted small">${miss.length === 1 ? `You expected ${esc(miss[0].name || 'an extra')} (${money(miss[0].amt)}) in ${esc(keyMonth(miss[0].month))}.` : `${miss.length} expected extras from past months haven’t been logged.`} Log it, move it to a later month, or drop it.</p><div><button class="btn ghost small" data-act="extra" data-id="${esc(miss[0].id)}">Sort it out</button></div></section>`;
-  h += monthPlanCard() + goalsSnapCard();
-  const due = activeBills().filter(x => diffDays(today(), x.next) <= 7).sort(byNext);
+  h += goalsSnapCard();
   if (homeOn('bills')) h += billsCard(P);
-  else if (due.length) h += `<section class="card" aria-label="Bills due soon"><div class="card-head"><h2>Bills due soon</h2><button class="link" data-act="more-tab" data-tab="bills">All bills</button></div><div>${due.map(x => billRow(x, diffDays(today(), x.next) <= 3 ? 'due' : 'pay')).join('')}</div></section>`;
-  h += balanceCard();
   if (homeOn('past')) h += pastCard();
   if (homeOn('savDetail')) h += savingsDetailCard(periodAt(homeOn('past') ? S.offset : 0));
-  h += catCard();
+  if (homeOn('cats')) h += catCard();
   const recent = [...S.tx, ...S.sweeps].sort((a, b) => a.d < b.d ? 1 : a.d > b.d ? -1 : 0).slice(0, 5);
   h += `<section class="card"><div class="card-head"><h2>Recent</h2><button class="link" data-act="more-tab" data-tab="activity">See all</button></div>${recent.length ? `<div class="txs">${recent.map(txRow).join('')}</div>` : `<div class="empty">Nothing logged yet. Tap + to add spending or money in.</div>`}</section>`;
   return h;
@@ -33,12 +26,12 @@ function setupCard() {
 }
 function safeCard() {
   const s = safeNow(), k = safeK(), short = s.can < -0.004, big = Math.max(0, s.can), m = s.m;
-  const legend = [{ name: 'Spent', color: 'var(--r-spent)' }, { name: 'Saved', color: ROLE.save }, { name: 'Bills due', color: ROLE.bills }, { name: 'To set aside', color: ROLE.save, hatch: true }, { name: 'Free to spend', color: ROLE.spend }];
+  const legend = [{ name: 'Spent', color: 'var(--r-spent)' }, ...(m.out > 0.004 ? [{ name: 'Moved to savings', color: ROLE.save }] : []), { name: 'Bills due', color: ROLE.bills }, { name: 'Free to spend', color: ROLE.spend }];
   const monthBar = segBar([
-    { name: 'Spent', v: m.spent, color: 'var(--r-spent)' }, { name: 'Saved from Spending', v: m.out, color: ROLE.save },
-    { name: 'Bills still due', v: s.unpaid, color: ROLE.bills }, { name: 'Still to set aside', v: s.aside, color: ROLE.save, hatch: true },
-    { name: 'Free to spend', v: big, color: ROLE.spend },
+    { name: 'Spent', v: m.spent, color: 'var(--r-spent)' }, { name: 'Moved to savings', v: m.out, color: ROLE.save },
+    { name: 'Bills still due', v: s.unpaid, color: ROLE.bills }, { name: 'Free to spend', v: big, color: ROLE.spend },
   ], { big: true });
+  const dueSoon = activeBills().filter(x => billFrom(x) === 'spend' && diffDays(today(), x.next) <= 3).sort(byNext);
   const perRow = (key, label) => { const x = s.per[key], over = x.left < -0.004, pct = x.allow > 0 ? Math.min(100, x.spent / x.allow * 100) : (x.spent > 0 ? 100 : 0);
     return `<div class="allow-row"><span class="nm">${label}</span><span class="val"><b class="num${over ? ' neg' : ''}">${money(Math.abs(x.left))}</b> ${over ? 'over' : 'left'} <span class="muted">of ${money(x.allow)}</span></span>
       <span class="bar${over ? ' over' : ''}" role="img" aria-label="${Math.round(pct)}% used" data-tip="${esc(`${label}: spent ${money(x.spent)} of ${money(x.allow)}`)}"><i style="width:${pct.toFixed(1)}%;background:${over ? 'var(--over)' : 'var(--r-spent)'}"></i></span></div>`; };
@@ -50,51 +43,52 @@ function safeCard() {
   return `<section class="card safe" aria-label="Safe to spend">
     <div class="card-head"><h2>Safe to spend</h2><button class="link" data-act="safe-how">How it’s worked out</button></div>
     <div class="avail-num"><b class="num${short ? ' neg' : ''}">${short ? '−' + money(-s.can) : money(big)}</b><span>${short ? 'short this month' : `left this month · ${s.daysLeft} day${s.daysLeft === 1 ? '' : 's'} to go`}</span></div>
-    ${short ? `<p class="status over">${I.over}Bills and set-asides need ${money(-s.can)} more than Spending has. Move money in, or ease a goal this month.</p>` : `<p class="muted small">About <b class="num" style="color:var(--ink)">${money(daily)}</b> a day${s.budLeft != null ? ` · ${s.budLeft >= 0 ? `${money(s.budLeft)} left in your ${mw(budgetNow().month)} budget` : `<span style="color:var(--warn);font-weight:650">${money(-s.budLeft)} over your ${mw(budgetNow().month)} budget</span>`}` : ''}</p>`}
+    ${short ? `<p class="status over">${I.over}Bills still due need ${money(-s.can)} more than your spending money. Log any money that came in, or move some from savings.</p>` : `<p class="muted small">About <b class="num" style="color:var(--ink)">${money(daily)}</b> a day${s.budLeft != null ? ` · ${s.budLeft >= 0 ? `${money(s.budLeft)} left in your ${mw(budgetNow().month)} budget` : `<span style="color:var(--warn);font-weight:650">${money(-s.budLeft)} over your ${mw(budgetNow().month)} budget</span>`}` : ''}</p>`}
     <div class="seg mini" role="group" aria-label="Show for">${SAFE_K.map(v => `<button data-act="safe-k" data-v="${v}" aria-pressed="${k === v}">${SAFE_NAME[v]}</button>`).join('')}</div>
     ${chart}
-    ${s.payPending > 0.004 ? `<p class="muted small">Your ${mw(s.payPending)} salary isn’t logged yet, so it isn’t counted.</p>` : ''}
+    ${dueSoon.map(x => `<div class="bill-line"><span>${I.warn}<b>${esc(x.name)}</b> ${money(x.amount)} · ${diffDays(today(), x.next) < 0 ? 'overdue' : diffDays(today(), x.next) === 0 ? 'due today' : `due ${esc(fmtD(x.next))}`}</span><button class="btn soft small" data-act="pay-bill" data-id="${esc(x.id)}">Paid</button></div>`).join('')}
   </section>`;
+}
+/* your pay: one tap when it lands (shared out automatically), then where it went */
+function payCard() {
+  const st = S.settings, sal = Money.salaryAt(st.income, curKey()), pm = payThisMonth();
+  const partList = (spend, save) => [...Object.entries(save).filter(([, v]) => v > 0.004).map(([id, v]) => { const c = saveCat(id); return { name: c.name, v, color: c.goal || (c.phases || []).length ? goalColor(c) : ROLE.save }; }), { name: 'Spending money', v: spend, color: ROLE.spend }];
+  const legend = list => `<div class="plan-legend">${list.filter(x => x.v > 0.004).map(x => `<span><i class="key" style="background:${x.color}"></i>${esc(x.name)} <b class="num">${mw(x.v)}</b></span>`).join('')}</div>`;
+  if (!pm.list.length) {
+    if (!(sal > 0)) return `<section class="card nudge"><div class="card-head"><h2>Your pay</h2></div><p class="muted small">Add your salary and the app shares out every pay for you: bills, savings, your goals, then spending money.</p><div><button class="btn soft small" data-act="income">Add my salary</button></div></section>`;
+    const x = payParts(sal, false), list = partList(x.spend, x.save);
+    return `<section class="card pay-card" aria-label="Got paid?"><div class="card-head"><h2>Got paid?</h2><span class="muted small">${esc(monthName(periodAt(0)))}</span></div>
+      <div class="avail-num"><b class="num">${money(sal)}</b><span>your usual salary</span></div>
+      <p class="small">Tap when it lands. It’s shared out for you, nothing else to do:</p>${segBar(list, { big: true })}${legend(list)}
+      ${x.pr.short.length ? `<p class="status warn">${I.warn}Not enough for every goal this month. ${esc(x.pr.short.map(r => r.name).join(', '))} get${x.pr.short.length === 1 ? 's' : ''} less, so your spending money stays safe.</p>` : ''}
+      <div class="btn-row"><button class="btn" data-act="pay-now">I got paid</button><button class="btn ghost" data-act="pay-other">Different amount</button></div></section>`;
+  }
+  const save = { ...pm.parts }; delete save.spend; const list = partList(pm.parts.spend, save), last = pm.list[pm.list.length - 1];
+  return `<section class="card" aria-label="Your pay"><div class="card-head"><h2>Your ${money(pm.amt)} pay</h2><button class="link" data-act="edit-tx" data-id="${esc(pm.list[0].id)}">Edit</button></div>
+    ${segBar(list, { big: true })}${legend(list)}
+    <p class="muted small">Your goals got their share from this pay automatically${last ? ` on ${esc(fmtD(last.d))}` : ''}. Next month, tap “I got paid” when it lands.</p></section>`;
 }
 function safeHowSheet() {
   const s = safeNow(), m = s.m, items = monthItems(), ahead = billsAhead(s.P);
   openSheet('How safe to spend is worked out', `<div class="form">
     <div class="flow" style="border-top:0;padding-top:0">${Math.abs(m.carry) > 0.004 ? `<span>From earlier months</span><span>${m.carry > 0 ? '+' : '−'}${money(Math.abs(m.carry))}</span>` : ''}<span>Put into Spending this month</span><span>+${money(m.added)}</span><span>Spent</span><span>−${money(m.spent)}</span>${m.out ? `<span>Moved to savings</span><span>−${money(m.out)}</span>` : ''}<span class="tot">In Spending now</span><span class="tot">${money(m.left)}</span></div>
     <div class="flow"><span class="muted">Still to come this month</span><span></span>${ahead.list.map(o => `<span>${esc(o.x.name)} · ${o.d < today() ? 'overdue' : esc(fmtD(o.d))}</span><span>−${money(o.x.amount)}</span>`).join('') || '<span>No bills</span><span>—</span>'}
-      ${plan().ctx.payLogged ? items.filter(x => x.due > 0.004).map(x => `<span>${esc(x.c.name)} · to set aside</span><span>−${money(x.due)}</span>`).join('') : '<span>Set-asides</span><span>come out of your pay</span>'}
       <span class="tot">Safe to spend</span><span class="tot"${s.safe < 0 ? ' style="color:var(--over)"' : ''}>${money(s.safe)}</span></div>
     ${s.budLeft != null ? `<p class="small">Separately, your ${mw(budgetNow().month)} monthly budget has ${s.budLeft >= 0 ? `${money(s.budLeft)} left` : `gone ${money(-s.budLeft)} over`}. The budget is a target; safe to spend is the money you actually have.</p>` : ''}
+    <p class="small">Savings and goal money aren’t in here: they’re taken from each pay the moment you log it, so what’s left is yours to spend.</p>
     <p class="muted small">Today’s and this week’s amounts share what’s safe over the days left in the month. Spending on one day leaves a little less for each of the others.</p>
     <div class="btn-row"><button class="btn ghost" data-act="more-tab" data-tab="activity">Spending activity</button><button class="btn ghost" data-act="more-tab" data-tab="plan">Budget &amp; plan</button></div></div>`);
-}
-function monthPlanCard() {
-  const st = S.settings, p = plan(), ctx = p.ctx, items = monthItems(), P = periodAt(0);
-  const base = ctx.payLogged ? ctx.payAmt : Money.salaryAt(st.income, ctx.curKey);
-  const billsMonth = r2(sum(S.tx.filter(t => t.t === 'out' && t.bill && t.d >= P.start && t.d <= P.end).map(t => t.amt)) + billsAhead(P).total);
-  const wants = r2(sum(items.map(x => x.want))), spend = r2(base - billsMonth - wants);
-  const parts = [{ name: 'Bills', v: billsMonth, color: ROLE.bills }, ...items.map(x => ({ name: x.kind === 'save' ? `${x.c.name} (${st.savePct}%)` : x.c.name, v: x.want, color: x.kind === 'save' ? ROLE.save : goalColor(x.c) })), { name: 'Spending money', v: Math.max(0, spend), color: ROLE.spend }];
-  let h = `<section class="card" aria-label="This month’s plan"><div class="card-head"><h2>This month’s plan</h2><button class="link" data-act="go" data-view="forecast">Forecast</button></div>`;
-  if (!(base > 0.004)) return h + `<p class="muted small">Add your salary to see how each pay splits between bills, savings, goals and spending.</p><div><button class="btn soft small" data-act="income">Add my salary</button></div></section>`;
-  h += `<p class="small">Your <b class="num">${money(base)}</b> ${ctx.payLogged ? 'pay' : 'expected pay'} for ${esc(monthName(P))}:</p>${segBar(parts, { big: true })}
-    <div class="plan-legend">${parts.filter(x => x.v > 0.004).map(x => `<span><i class="key" style="background:${x.color}"></i>${esc(x.name)} <b class="num">${mw(x.v)}</b></span>`).join('')}</div>`;
-  if (spend < -0.004) h += `<p class="status warn">${I.warn}This month’s plan is ${money(-spend)} more than your pay. Goals lower in your list get less.</p>`;
-  else if (spend < (+st.spendFloor || 0) - 0.004) h += `<p class="status warn">${I.warn}That leaves ${money(spend)} to spend, below your ${mw(st.spendFloor)} floor.</p>`;
-  if (items.length) {
-    h += `<div class="todo">${items.map(x => { const done = !(x.due > 0.004);
-      return `<div class="sub-row"><button class="nm" data-act="${x.kind === 'save' ? 'savecat' : 'goal'}" data-id="${esc(x.id)}"><i class="dot" style="background:${x.kind === 'save' ? ROLE.save : goalColor(x.c)};margin-right:8px"></i>${esc(x.c.name)}</button>
-        <div class="right">${done ? `<span class="status ok">${I.check}Done</span>` : ctx.payLogged ? `<span class="num small">${money(x.due)}</span><button class="btn soft small" data-act="aside-go" data-id="${esc(x.id)}">Set aside</button>` : `<span class="num small muted">${money(x.want)}</span>`}</div>
-        <span class="due">${x.kind === 'save' ? `${st.savePct}% of pay to savings` : x.kind === 'debt' ? 'Debt payment' : x.kind === 'plan' ? 'Monthly set-aside' : 'Goal'} ·${mw(x.put)} of ${mw(x.want)} in</span></div>`; }).join('')}</div>`;
-    if (!ctx.payLogged) h += `<p class="muted small">These come out of your pay when you log it.</p>`;
-  }
-  return h + '</section>';
 }
 function goalsSnapCard() {
   const p = plan(), goals = p.items.filter(c => c.goal).slice(0, 3);
   let h = `<section class="card" aria-label="Goals"><div class="card-head"><h2>Goals</h2><button class="link" data-act="go" data-view="goals">All goals</button></div>`;
   if (!goals.length) return h + `<p class="muted small">Saving for a trip, a laptop, an emergency fund, or paying off a card? Add a goal with a date. The app works out what to put in each month from your income.</p><div><button class="btn soft small" data-act="goal-edit">+ Add a goal</button></div></section>`;
-  return h + `<div class="snap">${goals.map(c => { const pr = progressOf(c);
-    return `<button class="snap-g" data-act="goal" data-id="${esc(c.id)}">${ring(pr.pct, goalColor(c), 54, `${Math.round(Math.min(1, pr.pct) * 100)}%`)}<span class="nm">${esc(c.name)}</span><span class="sub num">${Money.isDebt(c) ? `${money(pr.owe, { dp: 0 })} owed` : `${mw(pr.have)} of ${mw(pr.need)}`}</span>${statusChip(c)}</button>`; }).join('')}</div></section>`;
+  return h + `<div class="snap">${goals.map(c => { const pr = progressOf(c), each = perPay(c);
+    return `<button class="snap-g" data-act="goal" data-id="${esc(c.id)}">${ring(pr.pct, goalColor(c), 54, `${Math.round(Math.min(1, pr.pct) * 100)}%`)}<span class="nm">${esc(c.name)}</span><span class="sub num">${Money.isDebt(c) ? `${money(pr.owe, { dp: 0 })} owed` : `${mw(pr.have)} of ${mw(pr.need)}`}</span><span class="sub per-pay">${each > 0.004 ? `${mw(each)} from each pay` : 'nothing from pay yet'}</span>${statusChip(c)}</button>`; }).join('')}</div>
+    <p class="muted small">Goal money comes from your pay: each time you log pay, every goal gets its monthly amount, top goal first.</p></section>`;
 }
+/* what a goal gets from this month's pay (a debt: its minimum plus any extra) */
+const perPay = c => r2(Money.phaseAmt(c.phases, curKey()) + (Money.isDebt(c) ? +c.debt.min || 0 : 0));
 
 /* ===== Goals ===== */
 function viewGoals() {
@@ -106,6 +100,7 @@ function viewGoals() {
     <span class="small">${monthTotal > 0 ? `<b class="num">${money(monthTotal)}</b> planned this month` : 'Nothing planned this month'}</span>
     ${behind.length ? `<span class="status warn">${I.warn}${behind.length} behind</span>` : goals.length ? `<span class="status ok">${I.check}All on track</span>` : ''}</div></div>
     <button class="btn block" data-act="goal-edit">+ New goal</button></section>`;
+  h += goalMoneyCard(goals);
   if (goals.length) {
     const rows = goals.map(c => { const s = p.status[c.id] || {}, dk = Money.isDay(c.date) ? keyOfDay(c.date) : null; return { name: c.name, color: goalColor(c), fin: s.fin || null, date: dk, attrs: `data-act="goal" data-id="${esc(c.id)}" style="cursor:pointer"`, tip: `${c.name}\n${s.fin ? `Done around ${keyName(s.fin)}` : 'Not done within 20 years at this rate'}${dk ? `\nTarget ${fmtDY(c.date)}` : ''}` }; });
     h += `<section class="card"><div class="card-head"><h2>When each goal is done</h2></div>${ganttBars(curKey(), rows)}
@@ -118,6 +113,16 @@ function viewGoals() {
   if (done.length) h += `<details class="more"><summary>Completed (${done.length})</summary><div class="more-in"><section class="card"><div>${done.map(g => `<button class="sv-row" data-act="goal" data-id="${esc(g.id)}"><i class="dot" style="background:${goalColor(g)}"></i><span class="nm">${esc(g.name)}</span><span class="val">${mw(saveBal(g.id))}</span><span class="sub">Done ${fmtDY(g.done)}</span></button>`).join('')}</div></section></div></details>`;
   if (!goals.length && !done.length) h += `<div class="empty"><b>No goals yet</b>Add an emergency fund, a trip, a big purchase or a debt to pay off. Set a date and the app plans the monthly amounts from your income.</div>`;
   return h;
+}
+/* where goal money comes from: your pay, shared out the moment you log it. Shows the last pay as a flow. */
+function goalMoneyCard(goals) {
+  const st = S.settings, last = S.tx.find(t => t.t === 'in' && t.src === 'pay'), sal = Money.salaryAt(st.income, curKey());
+  let outs, title;
+  if (last) { title = `Your last pay: ${money(last.amt)} on ${fmtD(last.d)}`; outs = [...Object.entries(last.save || {}).filter(([, v]) => +v > 0.004).map(([id, v]) => { const c = saveCat(id); return { name: c.name, v: +v, color: c.goal || (c.phases || []).length ? goalColor(c) : ROLE.save }; }), { name: 'Spending money', v: +last.spend || 0, color: ROLE.spend }]; }
+  else if (sal > 0) { const x = payParts(sal, false); title = `Your next ${money(sal)} pay`; outs = [...Object.entries(x.save).map(([id, v]) => { const c = saveCat(id); return { name: c.name, v, color: c.goal || (c.phases || []).length ? goalColor(c) : ROLE.save }; }), { name: 'Spending money', v: x.spend, color: ROLE.spend }]; }
+  return `<section class="card"><div class="card-head"><h2>Where goal money comes from</h2></div>
+    <p class="small">From your pay. Each time you log pay, the app shares it out: bills stay in spending money, ${esc(st.savePct)}% goes to savings, your ${mw(+st.spendFloor || 0)} spending floor is kept safe, then every goal gets its monthly amount, top goal first. ${goals.length ? 'Use the arrows on each goal to change the order.' : ''}</p>
+    ${outs ? `<span class="eyebrow">${esc(title)}</span>${flowChart('pay', outs)}` : `<div><button class="btn soft small" data-act="income">Add my salary</button></div>`}</section>`;
 }
 const KIND_NAME = { emergency: 'Emergency fund', debt: 'Debt', travel: 'Travel', big: 'Big purchase', other: 'Goal' };
 function goalCard(c, i, n) {

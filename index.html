@@ -314,6 +314,9 @@ details.done summary{cursor:pointer;font-size:.82rem;font-weight:700;color:var(-
 .key{width:9px;height:9px;border-radius:99px;flex:none;display:inline-block}
 .bal{background:var(--surface);border-radius:24px;box-shadow:var(--shadow);padding:18px;display:flex;flex-direction:column;gap:10px;border:0;text-align:left;width:100%}
 .bal .hero-num{font-size:clamp(2.4rem,11vw,3rem)}
+.bal-toggle{display:flex;flex-direction:column;gap:10px;width:100%;padding:0;border:0;background:none;color:inherit;text-align:left;font:inherit;cursor:pointer}
+.bd-inline{border-top:1px solid var(--line);padding-top:14px;display:flex;flex-direction:column;gap:14px}
+#bd,#bd-avail{scroll-margin-top:72px}
 .pct-in{position:relative}
 .pct-in::after{content:"%";position:absolute;right:12px;top:50%;transform:translateY(-50%);color:var(--muted);font-weight:700;pointer-events:none}
 .goal-in .pct-in .input{min-height:40px;padding:8px 28px 8px 10px;font-size:15px}
@@ -447,7 +450,7 @@ const I = {
 /* ---------- state ---------- */
 const S = {
   mode: 'loading', why: '', db: null, uid: null, settings: null, months: {}, tx: [], sweeps: [],
-  view: 'home', offset: 0, planTab: 'spend', obHave: 0, savAll: false, homeBud: lsGet('spend-save:homeBud'), availPer: lsGet('spend-save:availPer'),
+  view: 'home', offset: 0, bdOpen: lsGet('spend-save:bdOpen') === '1', planTab: 'spend', obHave: 0, savAll: false, homeBud: lsGet('spend-save:homeBud'), availPer: lsGet('spend-save:availPer'),
   ins: { kind: ['day', 'week', 'month', 'year', 'all', 'custom'].includes(lsGet('spend-save:insKind')) ? lsGet('spend-save:insKind') : 'month', off: 0, from: '', to: '' },
   f: { q: '', types: [], where: 'all', label: 'all', range: 'month', from: '', to: '', limit: 150 },
   labelPeriod: ['day', 'week', 'month'].includes(lsGet('spend-save:labelPeriod')) ? lsGet('spend-save:labelPeriod') : 'month',
@@ -1020,65 +1023,60 @@ function balanceParts() {
   const ahead = r2(sum(S.tx.filter(t => t.t === 'in' && t.d <= until && inSpendDay(t) > p.end).map(t => +t.spend || 0)));
   return { spend, cats, saved, start, ahead, total: r2(spend + saved + ahead) };
 }
+/* All your money, with its breakdown shown right below it (toggle) instead of in a pop-up. The breakdown: where all
+   your money is, savings by category, what's available to spend and where this month's Spending went, what's to come. */
 function balanceCard() {
-  const b = balanceParts(), neg = v => v < -0.004 ? ' style="color:var(--over)"' : '';
-  return `<button class="bal" data-act="balance" aria-label="All your money now: ${esc(money(b.total))}. Tap for the breakdown.">
-    <span class="hero-top" style="width:100%"><span class="eyebrow">All your money</span><span class="linkbtn">Breakdown</span></span>
-    <span class="hero-num ${b.total < -0.004 ? 'neg' : ''}" style="display:block"><span class="cur">${b.total < -0.004 ? '−' : ''}${esc(sym())}</span>${nf2.format(Math.abs(b.total))}</span>
-    <span class="muted small">Savings <b class="num"${neg(b.saved)}>${money(b.saved)}</b> · Spending <b class="num"${neg(b.spend)}>${money(b.spend)}</b>${b.ahead > 0.004 ? ` · Next month <b class="num">${money(b.ahead)}</b>` : ''}</span>
-  </button>`;
+  const b = balanceParts(), neg = v => v < -0.004 ? ' style="color:var(--over)"' : '', open = !!S.bdOpen;
+  return `<section class="bal" aria-label="All your money">
+    <button class="bal-toggle" data-act="balance" aria-expanded="${open}" aria-controls="bd" aria-label="All your money: ${esc(money(b.total))}. ${open ? 'Hide' : 'Show'} the breakdown.">
+      <span class="hero-top" style="width:100%"><span class="eyebrow">All your money</span><span class="linkbtn">${open ? 'Hide breakdown ▴' : 'Breakdown ▾'}</span></span>
+      <span class="hero-num ${b.total < -0.004 ? 'neg' : ''}" style="display:block"><span class="cur">${b.total < -0.004 ? '−' : ''}${esc(sym())}</span>${nf2.format(Math.abs(b.total))}</span>
+      <span class="muted small">Savings <b class="num"${neg(b.saved)}>${money(b.saved)}</b> · Spending <b class="num"${neg(b.spend)}>${money(b.spend)}</b>${b.ahead > 0.004 ? ` · Next month <b class="num">${money(b.ahead)}</b>` : ''}</span>
+    </button>
+    ${open ? `<div class="bd-inline" id="bd">${breakdownHtml(b)}</div>` : ''}
+  </section>`;
 }
-/* The one pop-up behind "All your money" (Breakdown) and "Available to spend" (Details): where all your money is,
-   savings by category, what's available to spend and where this month's Spending went, then what's still to come. */
-function openBalance() {
+function breakdownHtml(b) {
   const neg = v => v < -0.004 ? ' style="color:var(--over)"' : '', oName = otherCat().name;
-  const body = () => {
-    const b = balanceParts(), p = periodAt(0), sb = spendBreak(), m = sb.m, k = availPer(), nextName = MONTHS[parts(addMonths(p.start, 1))[1] - 1];
-    const ahead = billsAhead(p), planned = plannedAhead(p, ahead), projected = r2(m.left - ahead.total - planned.total);
-    const cats = b.cats.filter(x => Math.abs(x.v) > 0.004).sort((x, y) => y.v - x.v);
-    const putIn = r2(m.added + Math.max(0, m.carry)), carryOver = m.carry < -0.004 ? r2(-m.carry) : 0;
-    const flow = [
-      { name: 'Put into Spending', v: putIn, color: 'var(--p1)', note: m.carry > 0.004 ? `incl. ${money(m.carry)} from earlier months` : '', tip: `Added this month ${money(m.added)}${m.carry > 0.004 ? ` + ${money(m.carry)} carried from earlier months` : ''}` },
-      ...(carryOver ? [{ name: 'Overspent in earlier months', v: carryOver, color: 'var(--over)', over: true }] : []),
-      { name: 'Spent', v: r2(m.spent + m.out), color: 'var(--muted)', note: m.out ? `incl. ${money(m.out)} moved to savings` : '' },
-      { name: 'Kept for goals', v: sb.kept, color: 'var(--p4)', tip: `Still to set aside for goals this month: ${money(sb.kept)}` },
-      sb.free < -0.004 ? { name: 'Short by', v: r2(-sb.free), color: 'var(--over)', over: true, tip: `You need ${money(-sb.free)} more to cover this month` } : { name: 'Available to spend', v: sb.free, color: 'var(--accent)' },
-    ];
-    const v = sb.left < -0.004 ? 0 : Math.max(0, sb[k]);
-    return `<div class="form">
-      <div><span class="eyebrow">All your money, right now</span><div class="big"${neg(b.total)}><span class="cur">${b.total < -0.004 ? '−' : ''}${esc(sym())}</span>${nf2.format(Math.abs(b.total))}</div></div>
-      <div class="flow" style="border-top:0;padding-top:0"><span><i class="dot pc1" style="margin-right:8px"></i>Spending · left this month</span><span${neg(b.spend)}>${money(b.spend)}</span>${b.ahead > 0.004 ? `<span><i class="dot pc5" style="margin-right:8px"></i>Spending · for next month</span><span>${money(b.ahead)}</span>` : ''}<span><i class="dot pc0" style="margin-right:8px"></i>Savings</span><span${neg(b.saved)}>${money(b.saved)}</span><span class="tot">Total</span><span class="tot"${neg(b.total)}>${money(b.total)}</span></div>
-      ${cats.length ? `<div class="sheet-sec"><span class="eyebrow">Savings by category</span>${hbars(cats.map(x => ({ name: x.c.name + (x.c.goal ? ' (goal)' : ''), v: x.v, color: `var(--p${x.c.color ?? 6})`, dot: true, over: x.v < -0.004, note: +x.c.target ? `of ${mw(+x.c.target)}` : '' })))}</div>` : ''}
-      <div class="sheet-sec"><div class="card-head" style="align-items:center"><span class="eyebrow">Available to spend</span><div class="seg mini range" role="group" aria-label="Show available to spend" style="flex:none">${AV_PER.map(x => `<button data-act="avail-per" data-v="${x}" aria-pressed="${k === x}">${AV_NAME[x]}</button>`).join('')}</div></div>
-        <div class="avail-num"><b class="num${sb.left < -0.004 ? ' neg' : ''}">${money(v)}</b><span>${AV_WORD[k]}${k === 'month' ? '' : ` · ${sb.days} day${sb.days === 1 ? '' : 's'} to ${fmtD(p.end)}`}</span></div>
-        <span class="eyebrow" style="margin-top:4px">Where this month’s Spending went</span>${hbars(flow)}</div>
-      ${ahead.list.length || planned.list.length ? `<div class="flow"><span class="muted">Still to come this month</span><span></span>${ahead.list.map(o => `<span>${esc(o.x.name)} · ${o.d < today() ? 'overdue' : esc(fmtD(o.d))}</span><span>−${money(o.x.amount)}</span>`).join('')}${planned.list.map(x => `<span>${esc(x.l.name)} · ${mw(x.left)} of ${mw(x.plan)} planned left</span><span>−${money(x.left)}</span>`).join('')}<span class="tot">After those</span><span class="tot"${projected < -0.004 ? ' style="color:var(--over)"' : ''}>${money(projected)}</span></div>` : ''}
-      <p class="muted small">${carryOn() ? (m.left >= 0 ? `Whatever’s left on ${fmtD(p.end)} carries into ${nextName}.` : `The ${money(-m.left)} over comes out of ${nextName}’s Spending.`) : (m.left >= 0 ? `Whatever’s left on ${fmtD(p.end)} goes to Savings → ${esc(oName)}.` : `At month end the ${money(-m.left)} comes out of Savings → ${esc(oName)}.`)}</p>
-      <div class="bud-part sheet-sec">${budLine(budKind())}${budgetNow()[budKind()] > 0.004 ? budStat(budKind(), budgetNow()[budKind()]) : ''}</div>
-      <div class="field sheet-sec"><label for="bal-real">Is this all your money?</label>
-        <span class="hint">If your bank accounts and cash add up to a different amount, type the real total. The difference goes into Savings → ${esc(oName)} as money you already had.</span>
-        <div class="money-in" data-sym="${esc(sym())}"><input class="input" id="bal-real" inputmode="decimal" placeholder="${esc(b.total.toFixed(2))}" autocomplete="off"></div>
-        <p class="small" id="bal-err" style="color:var(--over)" hidden></p>
-        <div><button class="btn soft small" data-act="bal-set">Update my total</button></div></div>
-      <div class="btn-row"><button class="btn ghost" data-act="sd-act">Spending activity</button><button class="btn ghost" data-act="sd-plan">Budget &amp; plans</button></div></div>`;
-  };
-  openSheet('Where your money is', body(), sheet => {
-    sheet.addEventListener('click', e => {
-      const t = e.target.closest('[data-act]'); if (!t) return; const a = t.dataset.act;
-      if (a === 'avail-per') { S.availPer = t.dataset.v; lsSet('spend-save:availPer', S.availPer); $('.sheet-body').innerHTML = body(); renderView(); }
-      if (a === 'home-bud') { S.homeBud = t.dataset.v; lsSet('spend-save:homeBud', S.homeBud); $('.sheet-body').innerHTML = body(); renderView(); }
-      if (a === 'sd-act') { closeSheet(); Object.assign(S.f, { where: 'spend', types: [], label: 'all', q: '', range: 'month', limit: 150 }); location.hash = 'activity'; }
-      if (a === 'sd-plan') { closeSheet(); S.planTab = 'spend'; location.hash = 'plan'; if (S.view === 'plan') renderView(); }
-      if (a === 'bal-set') {
-        const raw = $('#bal-real').value, err = $('#bal-err');
-        if (!raw.trim() || !isFinite(parseFloat(raw.replace(/[^0-9.\-]/g, '')))) { err.textContent = 'Type the total you have, for example 5200.'; err.hidden = false; return; }
-        const want = r2(parseMoney(raw)), now = balanceParts().total, diff = r2(want - now);
-        if (Math.abs(diff) < 0.005) { closeSheet(); toast('That’s already your total.'); return; }
-        const o = otherCat(); o.start = r2((+o.start || 0) + diff); saveSettings(); closeSheet();
-        toast(diff > 0 ? `Added ${money(diff)} you already had to Savings → ${o.name}. All your money: ${money(want)}.` : `Took ${money(-diff)} off Savings → ${o.name}. All your money: ${money(want)}.`, '', 5000);
-      }
-    });
-  });
+  const p = periodAt(0), sb = spendBreak(), m = sb.m, k = availPer(), nextName = MONTHS[parts(addMonths(p.start, 1))[1] - 1];
+  const ahead = billsAhead(p), planned = plannedAhead(p, ahead), projected = r2(m.left - ahead.total - planned.total);
+  const cats = b.cats.filter(x => Math.abs(x.v) > 0.004).sort((x, y) => y.v - x.v);
+  const putIn = r2(m.added + Math.max(0, m.carry)), carryOver = m.carry < -0.004 ? r2(-m.carry) : 0;
+  const flow = [
+    { name: 'Put into Spending', v: putIn, color: 'var(--p1)', note: m.carry > 0.004 ? `incl. ${money(m.carry)} from earlier months` : '', tip: `Added this month ${money(m.added)}${m.carry > 0.004 ? ` + ${money(m.carry)} carried from earlier months` : ''}` },
+    ...(carryOver ? [{ name: 'Overspent in earlier months', v: carryOver, color: 'var(--over)', over: true }] : []),
+    { name: 'Spent', v: r2(m.spent + m.out), color: 'var(--muted)', note: m.out ? `incl. ${money(m.out)} moved to savings` : '' },
+    { name: 'Kept for goals', v: sb.kept, color: 'var(--p4)', tip: `Still to set aside for goals this month: ${money(sb.kept)}` },
+    sb.free < -0.004 ? { name: 'Short by', v: r2(-sb.free), color: 'var(--over)', over: true, tip: `You need ${money(-sb.free)} more to cover this month` } : { name: 'Available to spend', v: sb.free, color: 'var(--accent)' },
+  ];
+  const v = sb.left < -0.004 ? 0 : Math.max(0, sb[k]);
+  return `<div class="flow" style="border-top:0;padding-top:0"><span><i class="dot pc1" style="margin-right:8px"></i>Spending · left this month</span><span${neg(b.spend)}>${money(b.spend)}</span>${b.ahead > 0.004 ? `<span><i class="dot pc5" style="margin-right:8px"></i>Spending · for next month</span><span>${money(b.ahead)}</span>` : ''}<span><i class="dot pc0" style="margin-right:8px"></i>Savings</span><span${neg(b.saved)}>${money(b.saved)}</span><span class="tot">Total</span><span class="tot"${neg(b.total)}>${money(b.total)}</span></div>
+    ${cats.length ? `<div class="sheet-sec"><span class="eyebrow">Savings by category</span>${hbars(cats.map(x => ({ name: x.c.name + (x.c.goal ? ' (goal)' : ''), v: x.v, color: `var(--p${x.c.color ?? 6})`, dot: true, over: x.v < -0.004, note: +x.c.target ? `of ${mw(+x.c.target)}` : '' })))}</div>` : ''}
+    <div class="sheet-sec" id="bd-avail"><div class="card-head" style="align-items:center"><span class="eyebrow">Available to spend</span><div class="seg mini range" role="group" aria-label="Show available to spend" style="flex:none">${AV_PER.map(x => `<button data-act="avail-per" data-v="${x}" aria-pressed="${k === x}">${AV_NAME[x]}</button>`).join('')}</div></div>
+      <div class="avail-num"><b class="num${sb.left < -0.004 ? ' neg' : ''}">${money(v)}</b><span>${AV_WORD[k]}${k === 'month' ? '' : ` · ${sb.days} day${sb.days === 1 ? '' : 's'} to ${fmtD(p.end)}`}</span></div>
+      <span class="eyebrow" style="margin-top:4px">Where this month’s Spending went</span>${hbars(flow)}</div>
+    ${ahead.list.length || planned.list.length ? `<div class="flow"><span class="muted">Still to come this month</span><span></span>${ahead.list.map(o => `<span>${esc(o.x.name)} · ${o.d < today() ? 'overdue' : esc(fmtD(o.d))}</span><span>−${money(o.x.amount)}</span>`).join('')}${planned.list.map(x => `<span>${esc(x.l.name)} · ${mw(x.left)} of ${mw(x.plan)} planned left</span><span>−${money(x.left)}</span>`).join('')}<span class="tot">After those</span><span class="tot"${projected < -0.004 ? ' style="color:var(--over)"' : ''}>${money(projected)}</span></div>` : ''}
+    <p class="muted small">${carryOn() ? (m.left >= 0 ? `Whatever’s left on ${fmtD(p.end)} carries into ${nextName}.` : `The ${money(-m.left)} over comes out of ${nextName}’s Spending.`) : (m.left >= 0 ? `Whatever’s left on ${fmtD(p.end)} goes to Savings → ${esc(oName)}.` : `At month end the ${money(-m.left)} comes out of Savings → ${esc(oName)}.`)}</p>
+    <div class="bud-part sheet-sec">${budLine(budKind())}${budgetNow()[budKind()] > 0.004 ? budStat(budKind(), budgetNow()[budKind()]) : ''}</div>
+    <div class="field sheet-sec"><label for="bal-real">Is this all your money?</label>
+      <span class="hint">If your bank accounts and cash add up to a different amount, type the real total. The difference goes into Savings → ${esc(oName)} as money you already had.</span>
+      <div class="money-in" data-sym="${esc(sym())}"><input class="input" id="bal-real" inputmode="decimal" placeholder="${esc(b.total.toFixed(2))}" autocomplete="off"></div>
+      <p class="small" id="bal-err" style="color:var(--over)" hidden></p>
+      <div><button class="btn soft small" data-act="bal-set">Update my total</button></div></div>
+    <div class="btn-row"><button class="btn ghost" data-act="sd-act">Spending activity</button><button class="btn ghost" data-act="sd-plan">Budget &amp; plans</button></div>`;
+}
+function showBreakdown(open, target) { // open/close the breakdown on Home (remembered on this device); optionally scroll to a part of it
+  S.bdOpen = open; lsSet('spend-save:bdOpen', open ? '1' : '');
+  const go = () => { if (target) { const el = $(target); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); } };
+  if (S.view !== 'home') { location.hash = 'home'; setTimeout(go, 150); } else { renderView(); requestAnimationFrame(go); }
+}
+function balSet() {
+  const raw = $('#bal-real').value, err = $('#bal-err');
+  if (!raw.trim() || !isFinite(parseFloat(raw.replace(/[^0-9.\-]/g, '')))) { err.textContent = 'Type the total you have, for example 5200.'; err.hidden = false; return; }
+  const want = r2(parseMoney(raw)), now = balanceParts().total, diff = r2(want - now);
+  if (Math.abs(diff) < 0.005) { $('#bal-real').value = ''; toast('That’s already your total.'); return; }
+  const o = otherCat(); o.start = r2((+o.start || 0) + diff); $('#bal-real').blur(); saveSettings();
+  toast(diff > 0 ? `Added ${money(diff)} you already had to Savings → ${o.name}. All your money: ${money(want)}.` : `Took ${money(-diff)} off Savings → ${o.name}. All your money: ${money(want)}.`, '', 5000);
 }
 function goalsCard() {
   const act = activeGoals(), done = doneGoals();
@@ -2076,7 +2074,10 @@ const ACT = {
   'save-view': el => { S.saveView = el.dataset.v; lsSet('spend-save:saveView', S.saveView); renderView(); },
   savecat: el => (saveCat(el.dataset.id).goal ? openGoal : openSaveCat)(el.dataset.id),
   goal: el => openGoal(el.dataset.id),
-  balance: () => openBalance(),
+  balance: () => showBreakdown(S.view === 'home' ? !S.bdOpen : true, S.view === 'home' ? null : '#bd'),
+  'bal-set': () => balSet(),
+  'sd-act': () => { Object.assign(S.f, { where: 'spend', types: [], label: 'all', q: '', range: 'month', limit: 150 }); location.hash = 'activity'; },
+  'sd-plan': () => { S.planTab = 'spend'; if (S.view !== 'plan') location.hash = 'plan'; else renderView(); },
   'goal-edit': el => openGoalEdit(el.dataset.id),
   'income-edit': el => openIncomeCatEdit(el.dataset.id),
   label: el => openLabel(el.dataset.id, el.dataset.k),
@@ -2101,7 +2102,7 @@ const ACT = {
   'copy-box': () => { const t = $('#copy-box'); if (navigator.clipboard) navigator.clipboard.writeText(t.value).then(() => toast('Copied'), () => { t.select(); toast('Select all and copy'); }); else { t.select(); toast('Select all and copy'); } },
   reset: el => armDanger(el, S.mode === 'demo' ? 'Tap again to clear' : 'Tap again to delete everything', resetAll),
   'hide-install': () => { lsSet(LKEY + ':hide-install', '1'); renderView(); },
-  'spend-details': () => openBalance(),
+  'spend-details': () => showBreakdown(true, '#bd-avail'),
   'cat-all': () => { const k = ['day', 'week', 'month'].includes(S.labelPeriod) ? S.labelPeriod : 'month'; S.ins = { ...S.ins, kind: k, off: 0 }; lsSet('spend-save:insKind', k); location.hash = 'insights'; },
   period: el => { S.offset = Math.min(0, S.offset + +el.dataset.d); renderView(); },
   'home-opt': el => { const k = el.dataset.k, on = !homeOn(k); S.settings.home = { ...(S.settings.home || {}), [k]: on }; if (k === 'past' && !on) S.offset = 0; saveSettings(); toast(`${HOME_OPTS.find(x => x[0] === k)[1]} ${on ? 'on' : 'off'}`); },

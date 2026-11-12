@@ -1131,8 +1131,11 @@ function saveMonth(id, p) {
   return { inn: r2(inn), out: r2(out), net: r2(inn - out) };
 }
 const totalSaved = until => r2(sum(S.settings.saveCats.map(c => saveBal(c.id, until))));
+/* the day an entry counts on in reports: pay logged late in a month "for next month" counts in that month when you
+   look at a whole month or year (looking at a day or week, it shows on the day it came in) */
+const repDay = (t, p) => t.t === 'in' && t.for && (!p.kind || p.kind === 'month' || p.kind === 'year') ? inSpendDay(t) : t.d;
 function stats(p) {
-  const tx = S.tx.filter(t => t.d >= p.start && t.d <= p.end);
+  const tx = S.tx.filter(t => { const rd = repDay(t, p); return rd >= p.start && rd <= p.end; });
   let inn = 0, spent = 0, fromSave = 0; const byLabel = {};
   for (const t of tx) {
     if (t.t === 'in') inn += t.amt;
@@ -1147,7 +1150,7 @@ function stats(p) {
 function saveFlows(p) {
   let pay = 0, otherIn = 0, fromSpend = 0, takenOut = 0;
   for (const t of S.tx) {
-    if (t.d < p.start || t.d > p.end) continue;
+    const rd = repDay(t, p); if (rd < p.start || rd > p.end) continue;
     if (t.t === 'in') { const v = sum(Object.values(t.save || {})); if (t.src === 'pay') pay += v; else otherIn += v; }
     else if (t.t === 'move' && !t.via) { if (t.from === 'spend' && t.to !== 'spend') fromSpend += t.amt; else if (t.to === 'spend' && t.from !== 'spend') takenOut += t.amt; }
     else if (t.t === 'out' && t.from !== 'spend') takenOut += t.amt;
@@ -1757,7 +1760,7 @@ function planCats() {
     <button class="btn ghost" data-act="label-edit">Add an expense category</button></section>
   <section class="card"><div class="card-head"><h2>Income categories</h2></div>
     <p class="muted small" style="margin-top:-6px">Where your money comes from. Pay is recorded as Salary.</p>
-    <div>${(s.incomeCats || []).map(c => `<button class="cat-link" data-act="income-edit" data-id="${esc(c.id)}"><span class="t"><b><i class="dot c${c.color ?? 8}"></i>${esc(c.name)}</b><span>${money(sum(S.tx.filter(t => t.t === 'in' && incomeCat(t).id === c.id && t.d >= periodAt(0).start && t.d <= periodAt(0).end).map(t => t.amt)))} this month</span></span>${I.right}</button>`).join('')}</div>
+    <div>${(s.incomeCats || []).map(c => `<button class="cat-link" data-act="income-edit" data-id="${esc(c.id)}"><span class="t"><b><i class="dot c${c.color ?? 8}"></i>${esc(c.name)}</b><span>${money(sum(S.tx.filter(t => t.t === 'in' && incomeCat(t).id === c.id && repDay(t, periodAt(0)) >= periodAt(0).start && repDay(t, periodAt(0)) <= periodAt(0).end).map(t => t.amt)))} this month</span></span>${I.right}</button>`).join('')}</div>
     <button class="btn ghost" data-act="income-edit">Add an income category</button></section>`;
 }
 function planMore() {
@@ -2307,7 +2310,7 @@ function exportCSV() {
   const rows = [['Date', 'Type', 'Amount', 'From', 'To or category', 'Note']];
   for (const t of [...S.tx, ...S.sweeps].sort((a, b) => a.d < b.d ? -1 : 1)) {
     if (t.t === 'out') rows.push([t.d, 'Spent', (-t.amt).toFixed(2), whereName(t.from), label(t.label).name, t.note]);
-    else if (t.t === 'in') rows.push([t.d, `Money in · ${incomeCat(t).name}`, t.amt.toFixed(2), '', [t.spend ? `Spending ${t.spend}${t.for ? ` for ${forName(t.for)}` : ''}` : '', ...Object.entries(t.save || {}).map(([k, v]) => `${saveCat(k).name} ${v}`)].filter(Boolean).join('; '), t.note]);
+    else if (t.t === 'in') rows.push([t.d, `Money in · ${incomeCat(t).name}${t.for ? ` (for ${forName(t.for)})` : ''}`, t.amt.toFixed(2), '', [t.spend ? `Spending ${t.spend}${t.for ? ` for ${forName(t.for)}` : ''}` : '', ...Object.entries(t.save || {}).map(([k, v]) => `${saveCat(k).name} ${v}`)].filter(Boolean).join('; '), t.note]);
     else if (t.t === 'move') { const f = t.via ? findTx(t.via) : null; rows.push([t.d, 'Move', t.amt.toFixed(2), whereName(t.from), whereName(t.to), [t.note, f ? `(changed money in of ${f.t.d}; already counted there)` : ''].filter(Boolean).join(' ')]); }
     else rows.push([t.d, t.amt >= 0 ? 'Leftover to savings' : 'Overspend from savings', Math.abs(t.amt).toFixed(2), t.amt >= 0 ? 'Spending' : 'Savings · Other', t.amt >= 0 ? 'Savings · Other' : 'Spending', `${monthName(t.p)} spending`]);
   }

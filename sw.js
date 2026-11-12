@@ -1,6 +1,6 @@
 /* Spend & Save offline helper. The app's own files: network first (so updates arrive), cached copy when offline.
    Google Fonts: cached after the first load. Your data never passes through here; it stays in this phone's storage. */
-const CACHE = 'spend-save-33eb3ece5d';
+const CACHE = 'spend-save-20af87422f';
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png', './apple-touch-icon.png'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim())); });
